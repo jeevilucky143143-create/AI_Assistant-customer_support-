@@ -29,6 +29,9 @@ import { PolicyUploadModal } from './PolicyUploadModal';
 import { ComplaintHistoryModal } from './ComplaintHistoryModal';
 import { Button } from '../ui/Button';
 import { apiService, BackendStatus } from '../../services/api';
+import { useAgentAuth } from '../auth/AgentAuthProvider';
+import { AgentProfileBadge } from '../auth/AgentProfileBadge';
+import { SupervisorAdminModal } from '../auth/SupervisorAdminModal';
 
 interface WorkspaceLayoutProps {
   onBackToLanding: () => void;
@@ -61,8 +64,12 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   const [isIntakeModalOpen, setIsIntakeModalOpen] = useState<boolean>(false);
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [isSupervisorModalOpen, setIsSupervisorModalOpen] = useState<boolean>(false);
   const [isIntakeSubmitting, setIsIntakeSubmitting] = useState<boolean>(false);
   const [isPolicyUploading, setIsPolicyUploading] = useState<boolean>(false);
+
+  // Authenticated agent context
+  const { displayName, role, agentProfile } = useAgentAuth();
 
   // Load initial tickets and policies
   useEffect(() => {
@@ -151,8 +158,8 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     const { response } = await apiService.dispatchComplaint({
       complaint_id: activeTicket.complaint_id,
       draft_id: analysis.draft_id,
-      agent_id: 'AGENT-042',
-      agent_name: 'Marcus Aurelius',
+      agent_id: agentProfile?.id || 'AGENT-CURRENT',
+      agent_name: displayName,
       action: modalAction,
       final_text: editedBody,
       notes: notes,
@@ -248,13 +255,16 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
               <span className="font-semibold text-xs sm:text-sm text-white">
                 Agent Review Console
               </span>
-              <span className="text-[10px] font-mono text-white/40 hidden md:inline">
-                • Agent Marcus Aurelius (Tier-1 Reviewer)
+              <span className="text-[10px] font-mono text-purple-300/80 hidden md:inline">
+                • {displayName} ({role === 'supervisor' ? 'Supervisor' : 'Tier-1 Reviewer'})
               </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Agent Profile & Clerk Auth Badge */}
+            <AgentProfileBadge onOpenSupervisorModal={() => setIsSupervisorModalOpen(true)} />
+
             {/* Audit History Button */}
             <Button
               variant="outline"
@@ -398,6 +408,12 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
           complaintId={activeTicket.complaint_id}
         />
       )}
+
+      {/* Supervisor Admin Modal */}
+      <SupervisorAdminModal
+        isOpen={isSupervisorModalOpen}
+        onClose={() => setIsSupervisorModalOpen(false)}
+      />
     </div>
   );
 };

@@ -1,6 +1,6 @@
-import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { BackendStatus } from '../../services/api';
+import { AgentProfileBadge } from '../auth/AgentProfileBadge';
 
 interface NavbarProps {
   onLaunchStudio: () => void;
@@ -44,8 +44,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onLaunchStudio, backendStatus })
           </a>
         </nav>
 
-        {/* Right-side Controls: Backend Status Pill & Launch CTA */}
+        {/* Right-side Controls: Clerk Auth & Launch CTA */}
         <div className="flex items-center gap-3 sm:gap-4">
+          <AgentProfileBadge compact={true} />
+
           <div
             className={`hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-mono border backdrop-blur-md ${
               backendStatus.isLive
