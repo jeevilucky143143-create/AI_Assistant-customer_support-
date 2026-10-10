@@ -64,6 +64,9 @@ export interface ComplaintTicket {
   overall_sentiment: 'negative' | 'frustrated' | 'neutral' | 'urgent';
   overall_severity: 'low' | 'medium' | 'high' | 'critical';
   review_status: 'PENDING_REVIEW' | 'APPROVED' | 'SIMULATED_DISPATCH' | 'ESCALATED' | 'REJECTED';
+  created_by_agent_name?: string | null;
+  assigned_to_agent_id?: string | null;
+  assigned_to_agent_name?: string | null;
 }
 
 export interface ComplaintAnalysis {
@@ -120,6 +123,8 @@ export interface ComplaintReviewHistory {
   decision: 'approved' | 'rejected' | 'escalated';
   final_response_text?: string;
   reason?: string;
+  reviewer_id?: string | null;
+  reviewer_name?: string | null;
   reviewed_at: string;
 }
 
@@ -171,6 +176,10 @@ export interface BackendComplaintResponse {
   draft: BackendDraftResponse;
   validation: BackendValidationReport;
   draft_variants?: Record<string, { text: string; citations: string[] }> | null;
+  created_by_agent_id?: string | null;
+  created_by_agent_name?: string | null;
+  assigned_to_agent_id?: string | null;
+  assigned_to_agent_name?: string | null;
 }
 
 export interface BackendPolicyDocumentResponse {
@@ -181,5 +190,26 @@ export interface BackendPolicyDocumentResponse {
   effective_from?: string | null;
   effective_to?: string | null;
   status: string;
+  created_at: string;
+}
+
+export interface AgentProfile {
+  id: string;
+  clerk_user_id: string;
+  email: string;
+  display_name: string;
+  role: 'support_agent' | 'supervisor';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ComplaintAuditLog {
+  id: string;
+  complaint_id: string;
+  actor_agent_id: string | null;
+  actor_name: string | null;
+  event_type: string;
+  details: Record<string, any> | null;
   created_at: string;
 }

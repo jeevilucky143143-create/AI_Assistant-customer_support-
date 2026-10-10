@@ -11,6 +11,8 @@ import {
   ComplaintHistory,
   BackendComplaintResponse,
   BackendPolicyDocumentResponse,
+  AgentProfile,
+  ComplaintAuditLog,
 } from '../types';
 import { MOCK_TICKETS, MOCK_ANALYSES, MOCK_POLICIES } from '../data/mockData';
 
@@ -25,6 +27,34 @@ export interface BackendStatus {
   timestamp: string;
   databaseStatus?: string;
   providersStatus?: string;
+}
+
+// Global Clerk token provider function
+let authTokenGetter: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenGetter(getter: () => Promise<string | null>) {
+  authTokenGetter = getter;
+}
+
+/**
+ * Builds HTTP headers including Bearer token if Clerk session is available.
+ */
+async function getAuthHeaders(includeContentType: boolean = true): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (authTokenGetter) {
+    try {
+      const token = await authTokenGetter();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (err) {
+      console.warn('Could not retrieve Clerk auth token:', err);
+    }
+  }
+  return headers;
 }
 
 /**
@@ -155,6 +185,102 @@ export const apiService = {
     };
   },
 
+  // Get active agent profile for authenticated Clerk user
+  async getCurrentAgent(): Promise<AgentProfile | null> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/agents/me`, {
+        method: 'GET',
+        headers,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('Could not retrieve agent profile:', err);
+    }
+    return null;
+  },
+
+  // List all registered agents (for assignment & supervisor admin)
+  async listAgents(): Promise<AgentProfile[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/agents`, {
+        method: 'GET',
+        headers,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('Could not list agents:', err);
+    }
+    return [];
+  },
+
+  // Update agent role (Supervisor only)
+  async updateAgentRole(agentId: string, role: 'support_agent' | 'supervisor'): Promise<AgentProfile> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/agents/${agentId}/role`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ role }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to update agent role');
+    }
+    return await res.json();
+  },
+
+  // Update agent status (activate or deactivate - Supervisor only)
+  async updateAgentStatus(agentId: string, isActive: boolean): Promise<AgentProfile> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/agents/${agentId}/status`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ is_active: isActive }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to update agent status');
+    }
+    return await res.json();
+  },
+
+  // Assign or reassign complaint to a support agent
+  async assignComplaint(complaintId: string, targetAgentId: string): Promise<BackendComplaintResponse> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}/assign`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ assigned_to_agent_id: targetAgentId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to assign complaint');
+    }
+    return await res.json();
+  },
+
+  // Retrieve immutable audit trail for a complaint
+  async getComplaintAuditLogs(complaintId: string): Promise<ComplaintAuditLog[]> {
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}/audit`, {
+        method: 'GET',
+        headers,
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('Could not fetch complaint audit logs:', err);
+    }
+    return [];
+  },
+
   // Get active complaint tickets (from local fixture queue or database)
   async getTickets(): Promise<ComplaintTicket[]> {
     return MOCK_TICKETS;
@@ -163,7 +289,8 @@ export const apiService = {
   // Get enterprise policy manuals from backend database
   async getPolicies(): Promise<PolicyDocument[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/policies`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/policies`, { headers });
       if (res.ok) {
         const data: BackendPolicyDocumentResponse[] = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -192,8 +319,10 @@ export const apiService = {
     if (versionLabel) {
       formData.append('version_label', versionLabel);
     }
+    const headers = await getAuthHeaders(false); // multipart boundary set automatically
     const res = await fetch(`${API_BASE_URL}/policies?sync=true`, {
       method: 'POST',
+      headers,
       body: formData,
     });
     if (!res.ok) {
@@ -210,9 +339,10 @@ export const apiService = {
   ): Promise<{ analysis: ComplaintAnalysis; isLive: boolean }> {
     try {
       const backendTone = tone === 'formal' ? 'professional' : tone;
+      const headers = await getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/complaints`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           complaint_text: ticket.raw_text,
           response_tone: backendTone,
@@ -254,9 +384,10 @@ export const apiService = {
     let data: BackendComplaintResponse | null = null;
 
     try {
+      const headers = await getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/complaints`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           complaint_text: complaintText,
           response_tone: backendTone,
@@ -284,6 +415,9 @@ export const apiService = {
       overall_sentiment: 'frustrated',
       overall_severity: data?.status === 'needs_human_review' ? 'high' : 'medium',
       review_status: 'PENDING_REVIEW',
+      created_by_agent_name: data?.created_by_agent_name || null,
+      assigned_to_agent_id: data?.assigned_to_agent_id || null,
+      assigned_to_agent_name: data?.assigned_to_agent_name || null,
     };
 
     if (isLive && data) {
@@ -319,9 +453,10 @@ export const apiService = {
           ? 'escalated'
           : 'rejected';
 
+      const headers = await getAuthHeaders();
       const res = await fetch(`${API_BASE_URL}/complaints/${payload.complaint_id}/review`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           draft_id: payload.draft_id || '',
           decision: backendDecision,
@@ -381,7 +516,10 @@ export const apiService = {
   // Fetch full audit and review history for a complaint
   async getComplaintHistory(complaintId: string): Promise<ComplaintHistory | null> {
     try {
-      const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}/history`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}/history`, {
+        headers,
+      });
       if (res.ok) {
         return await res.json();
       }
@@ -394,7 +532,10 @@ export const apiService = {
   // Retrieve an individual complaint details by ID
   async getComplaint(complaintId: string): Promise<BackendComplaintResponse | null> {
     try {
-      const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}`);
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE_URL}/complaints/${complaintId}`, {
+        headers,
+      });
       if (res.ok) {
         return await res.json();
       }
