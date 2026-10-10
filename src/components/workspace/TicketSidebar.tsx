@@ -8,6 +8,8 @@ import {
   Ticket,
   ChevronRight,
   ShieldCheck,
+  Plus,
+  Upload,
 } from 'lucide-react';
 import { ComplaintTicket, PolicyDocument } from '../../types';
 import { Badge } from '../ui/Badge';
@@ -19,6 +21,8 @@ interface TicketSidebarProps {
   policies: PolicyDocument[];
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  onOpenIntakeModal?: () => void;
+  onOpenPolicyModal?: () => void;
 }
 
 export const TicketSidebar: React.FC<TicketSidebarProps> = ({
@@ -28,6 +32,8 @@ export const TicketSidebar: React.FC<TicketSidebarProps> = ({
   policies,
   isOpenMobile,
   onCloseMobile,
+  onOpenIntakeModal,
+  onOpenPolicyModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -103,6 +109,17 @@ export const TicketSidebar: React.FC<TicketSidebarProps> = ({
               className="w-full pl-8 pr-3 py-1.5 text-xs bg-black/40 border border-white/10 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-purple-500/50"
             />
           </div>
+
+          {/* New Complaint Intake Button */}
+          {onOpenIntakeModal && (
+            <button
+              onClick={onOpenIntakeModal}
+              className="w-full mt-2.5 py-1.5 px-3 rounded-lg bg-gradient-to-r from-purple-600/90 to-indigo-600/90 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 shadow-sm transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Intake New Complaint</span>
+            </button>
+          )}
         </div>
 
         {/* Ticket List */}
@@ -166,7 +183,19 @@ export const TicketSidebar: React.FC<TicketSidebarProps> = ({
               <BookOpen className="w-3.5 h-3.5 text-blue-400" />
               Indexed Policies ({policies.length})
             </span>
-            <span className="font-mono text-[10px] text-emerald-400">pgvector ready</span>
+            <div className="flex items-center gap-2">
+              {onOpenPolicyModal && (
+                <button
+                  onClick={onOpenPolicyModal}
+                  className="text-[10px] text-purple-300 hover:text-white flex items-center gap-1 font-mono transition-colors"
+                  title="Upload New Policy"
+                >
+                  <Upload className="w-2.5 h-2.5" />
+                  <span>Upload</span>
+                </button>
+              )}
+              <span className="font-mono text-[10px] text-emerald-400">pgvector</span>
+            </div>
           </div>
           <div className="space-y-1">
             {policies.slice(0, 3).map((pol) => (

@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   RotateCw,
-  Terminal,
+  History,
+  Plus,
+  BookOpen,
 } from 'lucide-react';
 import {
   ComplaintTicket,
@@ -22,6 +24,9 @@ import { EvidenceViewer } from './EvidenceViewer';
 import { GuardrailBanner } from './GuardrailBanner';
 import { DraftEditor } from './DraftEditor';
 import { DispatchModal } from './DispatchModal';
+import { ComplaintIntakeModal } from './ComplaintIntakeModal';
+import { PolicyUploadModal } from './PolicyUploadModal';
+import { ComplaintHistoryModal } from './ComplaintHistoryModal';
 import { Button } from '../ui/Button';
 import { apiService, BackendStatus } from '../../services/api';
 
@@ -52,6 +57,13 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [dispatchResult, setDispatchResult] = useState<DispatchResponse | null>(null);
 
+  // Additional Modals
+  const [isIntakeModalOpen, setIsIntakeModalOpen] = useState<boolean>(false);
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState<boolean>(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
+  const [isIntakeSubmitting, setIsIntakeSubmitting] = useState<boolean>(false);
+  const [isPolicyUploading, setIsPolicyUploading] = useState<boolean>(false);
+
   // Load initial tickets and policies
   useEffect(() => {
     async function loadInitial() {
@@ -63,7 +75,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     loadInitial();
   }, []);
 
-  // Whenever ticket or tone changes, run analysis
+  // Whenever ticket changes, run analysis
   useEffect(() => {
     const currentTicket = tickets.find((t) => t.complaint_id === selectedTicketId);
     if (!currentTicket) return;
@@ -75,11 +87,45 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
       setSelectedConcernIndex(0);
       setIsLoadingAnalysis(false);
     });
-  }, [selectedTicketId, currentTone, tickets]);
+  }, [selectedTicketId, tickets]);
 
   const activeTicket =
     tickets.find((t) => t.complaint_id === selectedTicketId) || tickets[0];
   const activeConcern = analysis?.decomposed_concerns[selectedConcernIndex];
+
+  // Tone variant switcher handling
+  const handleSelectTone = (tone: TonePreset) => {
+    setCurrentTone(tone);
+    if (!analysis) return;
+
+    const backendToneKey = tone === 'formal' ? 'professional' : tone;
+    const variant = analysis.draft_variants?.[backendToneKey];
+    if (variant) {
+      // Use existing pre-generated tone variant from backend
+      setEditedBody(variant.text);
+      setAnalysis((prev) =>
+        prev
+          ? {
+              ...prev,
+              grounded_draft: {
+                ...prev.grounded_draft,
+                tone,
+                body: variant.text,
+                anchored_clause_ids: variant.citations,
+              },
+            }
+          : null
+      );
+    } else if (activeTicket) {
+      // Re-query backend for draft with this tone
+      setIsLoadingAnalysis(true);
+      apiService.analyzeComplaint(activeTicket, tone).then(({ analysis: newAnalysis }) => {
+        setAnalysis(newAnalysis);
+        setEditedBody(newAnalysis.grounded_draft.body);
+        setIsLoadingAnalysis(false);
+      });
+    }
+  };
 
   // Action handlers
   const handleApprove = () => {
@@ -104,6 +150,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
 
     const { response } = await apiService.dispatchComplaint({
       complaint_id: activeTicket.complaint_id,
+      draft_id: analysis.draft_id,
       agent_id: 'AGENT-042',
       agent_name: 'Marcus Aurelius',
       action: modalAction,
@@ -125,6 +172,38 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
     );
   };
 
+  // Intake new complaint handler
+  const handleIntakeSubmit = async (complaintText: string, tone: TonePreset) => {
+    setIsIntakeSubmitting(true);
+    try {
+      const { ticket, analysis: newAnalysis } = await apiService.submitComplaint(
+        complaintText,
+        tone
+      );
+      setTickets((prev) => [ticket, ...prev]);
+      setSelectedTicketId(ticket.complaint_id);
+      setAnalysis(newAnalysis);
+      setEditedBody(newAnalysis.grounded_draft.body);
+      setCurrentTone(tone);
+      setSelectedConcernIndex(0);
+      setIsIntakeModalOpen(false);
+    } finally {
+      setIsIntakeSubmitting(false);
+    }
+  };
+
+  // Ingest policy file handler
+  const handlePolicyUpload = async (file: File, versionLabel?: string) => {
+    setIsPolicyUploading(true);
+    try {
+      await apiService.uploadPolicy(file, versionLabel);
+      const updatedPolicies = await apiService.getPolicies();
+      setPolicies(updatedPolicies);
+    } finally {
+      setIsPolicyUploading(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-[#0a0a0d] overflow-hidden text-[#f1f1f5]">
       {/* Sidebar */}
@@ -138,6 +217,8 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
         policies={policies}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+        onOpenIntakeModal={() => setIsIntakeModalOpen(true)}
+        onOpenPolicyModal={() => setIsPolicyModalOpen(true)}
       />
 
       {/* Main Workspace Area */}
@@ -168,12 +249,23 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
                 Agent Review Console
               </span>
               <span className="text-[10px] font-mono text-white/40 hidden md:inline">
-                • Agent Marcus Aurelius (Tier-1)
+                • Agent Marcus Aurelius (Tier-1 Reviewer)
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* Audit History Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsHistoryModalOpen(true)}
+              icon={<History className="w-3.5 h-3.5 text-purple-400" />}
+            >
+              <span className="hidden sm:inline">Audit Trail</span>
+            </Button>
+
+            {/* Backend Connectivity Status Badge */}
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono border ${
                 backendStatus.isLive
@@ -201,23 +293,23 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             {dispatchResult && (
               <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 flex items-center justify-between text-xs animate-in fade-in duration-200">
                 <div className="flex items-center gap-2.5">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                   <div>
-                    <span className="font-semibold block">
-                      Response Formally {dispatchResult.status}!
+                    <span className="font-semibold block text-emerald-300">
+                      Human Review Formally Recorded: {dispatchResult.status}
                     </span>
                     <span className="text-white/60 font-mono text-[11px] block">
-                      Dispatch Ref: {dispatchResult.dispatch_id} • Audit Log:{' '}
+                      Decision Ref: {dispatchResult.dispatch_id} • Audit Record:{' '}
                       {dispatchResult.audit_log_id}
                     </span>
                     <span className="text-amber-300/80 font-mono text-[10px] block mt-0.5">
-                      (Simulated CRM Channel • Audit record stored in compliance database)
+                      (Compliance Invariant: Stored in immutable audit ledger • Customer communication is NEVER sent automatically)
                     </span>
                   </div>
                 </div>
                 <button
                   onClick={() => setDispatchResult(null)}
-                  className="text-white/40 hover:text-white px-2 py-1"
+                  className="text-white/40 hover:text-white px-2 py-1 text-xs"
                 >
                   Dismiss
                 </button>
@@ -234,7 +326,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
             {isLoadingAnalysis ? (
               <div className="p-16 text-center text-xs text-white/50 space-y-2">
                 <RotateCw className="w-6 h-6 animate-spin mx-auto text-purple-400" />
-                <p>Retrieving policy chunks & running hybrid RRF search...</p>
+                <p>Retrieving policy chunks & running hybrid RRF search in backend...</p>
               </div>
             ) : analysis ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -251,7 +343,7 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
                     editedBody={editedBody}
                     onChangeBody={setEditedBody}
                     currentTone={currentTone}
-                    onSelectTone={setCurrentTone}
+                    onSelectTone={handleSelectTone}
                     onApprove={handleApprove}
                     onReject={handleReject}
                     onEscalate={handleEscalate}
@@ -279,6 +371,31 @@ export const WorkspaceLayout: React.FC<WorkspaceLayoutProps> = ({
           customerName={activeTicket.customer_name}
           onConfirm={handleConfirmDispatch}
           isSubmitting={isSubmitting}
+        />
+      )}
+
+      {/* Complaint Intake Modal */}
+      <ComplaintIntakeModal
+        isOpen={isIntakeModalOpen}
+        onClose={() => setIsIntakeModalOpen(false)}
+        onSubmit={handleIntakeSubmit}
+        isSubmitting={isIntakeSubmitting}
+      />
+
+      {/* Policy Upload Modal */}
+      <PolicyUploadModal
+        isOpen={isPolicyModalOpen}
+        onClose={() => setIsPolicyModalOpen(false)}
+        onUpload={handlePolicyUpload}
+        isUploading={isPolicyUploading}
+      />
+
+      {/* Audit History Modal */}
+      {activeTicket && (
+        <ComplaintHistoryModal
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+          complaintId={activeTicket.complaint_id}
         />
       )}
     </div>
